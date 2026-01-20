@@ -80,9 +80,6 @@
         "__id__": 20
       },
       {
-        "__id__": 75
-      },
-      {
         "__id__": 80
       },
       {
@@ -90,6 +87,9 @@
       },
       {
         "__id__": 82
+      },
+      {
+        "__id__": 75
       }
     ],
     "_active": true,
@@ -196,7 +196,7 @@
     "_priority": 0,
     "_fov": 45,
     "_fovAxis": 0,
-    "_orthoHeight": 383.38658146964855,
+    "_orthoHeight": 506.0702875399361,
     "_near": 0,
     "_far": 2000,
     "_color": {
@@ -437,7 +437,7 @@
     },
     "_enabled": true,
     "__prefab": null,
-    "scrollSpeed": 2,
+    "scrollSpeed": 99,
     "secondBackground": {
       "__id__": 12
     },
@@ -854,6 +854,14 @@
       "__uuid__": "2d084a02-9042-42f5-ab78-8899e97c0ab7",
       "__expectedType__": "cc.Prefab"
     },
+    "enemyPrefab": {
+      "__uuid__": "5d07c3a5-cfd4-4959-8b76-64641fc0f428",
+      "__expectedType__": "cc.Prefab"
+    },
+    "enemySpawnY": 100,
+    "enemySpawnIntervalMin": 6,
+    "enemySpawnIntervalMax": 10,
+    "enemySpeed": 10,
     "collectSound": {
       "__uuid__": "a4adc29e-a4d6-4808-96dc-6df024dfd2fc",
       "__expectedType__": "cc.AudioClip"
@@ -863,16 +871,21 @@
     },
     "collectibleMinY": 50,
     "collectibleMaxY": 250,
-    "collectibleCollectionRadius": 0.2,
+    "collectibleCollectionRadius": 0.3,
     "sessionDuration": 5,
-    "finishY": 50,
+    "finishY": 45,
+    "finishColliderScale": 1.5,
+    "obstacleSpawnOffsetY": 100,
+    "obstacleSpawnIntervalMin": 8,
+    "obstacleSpawnIntervalMax": 12,
+    "gameSpeed": 8,
     "victoryScreen": null,
     "playerSprite": {
       "__uuid__": "5962607e-8e58-4eea-8c9f-416bb67872f3@f9941",
       "__expectedType__": "cc.SpriteFrame"
     },
     "obstacleSprite": {
-      "__uuid__": "1166af96-52b8-4950-a20c-f17b8dead829@f9941",
+      "__uuid__": "b3b086c4-3104-4dc0-9fc9-8f42145bd4d1@f9941",
       "__expectedType__": "cc.SpriteFrame"
     },
     "backgroundSprite": {

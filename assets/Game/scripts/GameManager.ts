@@ -1,6 +1,7 @@
 import { _decorator, Component, Node, Label, director, AudioSource, Prefab, SpriteFrame, instantiate, UITransform, Sprite, input, Input, EventKeyboard, KeyCode, view, AudioClip, Vec3, tween, easing } from 'cc';
 import { PlayerController } from './PlayerController';
 import { BackgroundScroller } from './BackgroundScroller';
+import { EnemyController } from './EnemyController';
 const { ccclass, property } = _decorator;
 
 export enum GameState {
@@ -42,6 +43,21 @@ export class GameManager extends Component {
     @property(Prefab)
     finishPrefab: Prefab = null!; // Префаб финиша
 
+    @property(Prefab)
+    enemyPrefab: Prefab = null!; // Префаб противника
+
+    @property
+    enemySpawnY: number = 150; // Координата Y для спавна противников (относительно земли)
+
+    @property
+    enemySpawnIntervalMin: number = 6; // Минимальный интервал спавна противников в секундах
+
+    @property
+    enemySpawnIntervalMax: number = 10; // Максимальный интервал спавна противников в секундах
+
+    @property
+    enemySpeed: number = 2.5; // Скорость движения противников (может быть больше gameSpeed для более агрессивного движения)
+
     @property(AudioClip)
     collectSound: AudioClip = null!; // Звук сбора предмета
 
@@ -63,6 +79,21 @@ export class GameManager extends Component {
     @property
     finishY: number = 150; // Высота финиша по Y (относительно земли)
 
+    @property
+    finishColliderScale: number = 1.5; // Множитель размера коллайдера финиша (1.5 = увеличение на 50%)
+
+    @property
+    obstacleSpawnOffsetY: number = 0; // Оффсет по Y для спавна препятствий (относительно земли)
+
+    @property
+    obstacleSpawnIntervalMin: number = 8; // Минимальный интервал спавна препятствий в секундах
+
+    @property
+    obstacleSpawnIntervalMax: number = 12; // Максимальный интервал спавна препятствий в секундах
+
+    @property
+    gameSpeed: number = 2; // Скорость игры (скорость движения фона и препятствий, можно изменять)
+
     @property(Node)
     victoryScreen: Node = null!; // Экран победы (если не указан, используется gameOverScreen)
 
@@ -77,7 +108,6 @@ export class GameManager extends Component {
 
     private gameState: GameState = GameState.Start;
     private score: number = 0;
-    private gameSpeed: number = 2;
     private playerHealth: number = 3;
     private maxHealth: number = 3;
     private isMuted: boolean = false;
@@ -85,10 +115,13 @@ export class GameManager extends Component {
     private firstObstacleSpawned: boolean = false;
     private obstacles: Node[] = [];
     private obstacleSpawnTimer: number = 0;
-    private obstacleSpawnInterval: number = 10; // Препятствия появляются раз в 10 секунд
+    private currentObstacleSpawnInterval: number = 0; // Текущий интервал спавна препятствий (случайный)
     private collectibles: Node[] = [];
     private collectibleSpawnTimer: number = 0;
     private collectibleSpawnInterval: number = 5; // Собираемые предметы появляются раз в 5 секунд
+    private enemies: Node[] = [];
+    private enemySpawnTimer: number = 0;
+    private currentEnemySpawnInterval: number = 0; // Текущий интервал спавна противников (случайный)
     private runTimer: number = 0;
     private finishLine: Node | null = null; // Узел финиша
     private finishSpawned: boolean = false; // Флаг, что финиш уже создан
@@ -210,12 +243,14 @@ export class GameManager extends Component {
         console.log('[GameManager] initGame()');
         this.gameState = GameState.Start;
         this.score = 0;
-        this.gameSpeed = 2;
         this.playerHealth = this.maxHealth;
         this.tutorialShown = false;
         this.firstObstacleSpawned = false;
         this.obstacles = [];
         this.obstacleSpawnTimer = 0;
+        this.currentObstacleSpawnInterval = this.obstacleSpawnIntervalMin + Math.random() * (this.obstacleSpawnIntervalMax - this.obstacleSpawnIntervalMin);
+        this.enemySpawnTimer = 0;
+        this.currentEnemySpawnInterval = this.enemySpawnIntervalMin + Math.random() * (this.enemySpawnIntervalMax - this.enemySpawnIntervalMin);
         
         // Останавливаем прокрутку фона
         const backgroundNode = this.getBackgroundNode();
@@ -227,14 +262,14 @@ export class GameManager extends Component {
         }
         
         if (this.startScreen) {
-            this.startScreen.active = true;
+        this.startScreen.active = true;
             console.log('[GameManager] StartScreen activated');
         } else {
             console.error('[GameManager] startScreen is null!');
         }
         
         if (this.gameOverScreen) {
-            this.gameOverScreen.active = false;
+        this.gameOverScreen.active = false;
         } else {
             console.error('[GameManager] gameOverScreen is null!');
         }
@@ -253,11 +288,13 @@ export class GameManager extends Component {
         this.startScreen.active = false;
         this.gameOverScreen.active = false;
         this.score = 0;
-        this.gameSpeed = 2;
         this.playerHealth = this.maxHealth;
         this.tutorialShown = false;
         this.firstObstacleSpawned = false;
         this.obstacleSpawnTimer = 0;
+        this.currentObstacleSpawnInterval = this.obstacleSpawnIntervalMin + Math.random() * (this.obstacleSpawnIntervalMax - this.obstacleSpawnIntervalMin);
+        this.enemySpawnTimer = 0;
+        this.currentEnemySpawnInterval = this.enemySpawnIntervalMin + Math.random() * (this.enemySpawnIntervalMax - this.enemySpawnIntervalMin);
         this.runTimer = 0;
         
         // Очищаем препятствия и собираемые предметы
@@ -265,13 +302,19 @@ export class GameManager extends Component {
         this.obstacles = [];
         this.collectibles = [];
         this.collectibleSpawnTimer = 0;
+        this.enemies = [];
+        this.enemySpawnTimer = 0;
         this.runTimer = 0;
         this.finishLine = null;
         this.finishSpawned = false;
         console.log('[Game] Obstacles cleared, start running');
         
-        // Переключаем анимацию на бег
+        // Переключаем анимацию на бег и запускаем движение игрока
         this.updatePlayerAnimation();
+        const playerController = this.player.getComponent(PlayerController);
+        if (playerController) {
+            playerController.setRunning(true);
+        }
         
         // Запускаем прокрутку фона
         const backgroundNode = this.getBackgroundNode();
@@ -338,8 +381,12 @@ export class GameManager extends Component {
             }
         }
         
-        // Переключаем анимацию на Idle
+        // Переключаем анимацию на Idle и останавливаем движение игрока
         this.updatePlayerAnimation();
+        const playerController = this.player.getComponent(PlayerController);
+        if (playerController) {
+            playerController.setRunning(false);
+        }
     }
 
     /**
@@ -361,6 +408,7 @@ export class GameManager extends Component {
             this.gameState === GameState.Over || 
             this.gameState === GameState.Finish) {
             playerController.playIdle();
+            playerController.setRunning(false);
         } else if (this.gameState === GameState.Playing) {
             // Во время игры проверяем, не прыгает ли игрок
             // Если прыгает, анимация прыжка уже установлена в PlayerController.jump()
@@ -368,6 +416,7 @@ export class GameManager extends Component {
             if (!playerController.getIsJumping()) {
                 playerController.playRun();
             }
+            playerController.setRunning(true);
         }
     }
 
@@ -474,10 +523,12 @@ export class GameManager extends Component {
         const canvasWidth = canvasTransform.width || visible.width;
         const groundY = -visible.height / 2 + 150;
         
-        // Используем локальные координаты относительно Canvas
-        obstacle.setPosition(canvasWidth / 2 + 50, groundY, 0);
+        // Используем локальные координаты относительно Canvas с настраиваемым оффсетом по Y
+        const spawnX = canvasWidth / 2 + 50;
+        const spawnY = groundY + this.obstacleSpawnOffsetY;
+        obstacle.setPosition(spawnX, spawnY, 0);
         this.obstacles.push(obstacle);
-        console.log('[GameManager] Obstacle spawned at', canvasWidth / 2 + 50, groundY, 'total obstacles:', this.obstacles.length);
+        console.log('[GameManager] Obstacle spawned at', spawnX, spawnY, 'total obstacles:', this.obstacles.length);
 
         if (!this.firstObstacleSpawned) {
             this.firstObstacleSpawned = true;
@@ -540,6 +591,54 @@ export class GameManager extends Component {
         collectible.setPosition(canvasWidth / 2 + 50, randomY, 0);
         this.collectibles.push(collectible);
         console.log('[GameManager] Collectible spawned at', canvasWidth / 2 + 50, randomY, 'total collectibles:', this.collectibles.length);
+    }
+
+    spawnEnemy() {
+        if (!this.enemyPrefab) {
+            console.warn('[GameManager] spawnEnemy: enemyPrefab is null!');
+            return;
+        }
+
+        console.log('[GameManager] Spawning enemy');
+        const enemy = instantiate(this.enemyPrefab);
+        
+        if (!this.obstacleContainer) {
+            console.error('[GameManager] obstacleContainer is null!');
+            return;
+        }
+        
+        this.obstacleContainer.addChild(enemy);
+        
+        // Противники в Canvas (UI), используем локальные координаты
+        let canvasNode = this.obstacleContainer.parent;
+        if (!canvasNode || canvasNode.name !== 'Canvas') {
+            const scene = director.getScene();
+            if (!scene) {
+                console.error('[GameManager] Scene is null!');
+                return;
+            }
+            canvasNode = scene.getChildByName('Canvas');
+            if (!canvasNode) {
+                console.error('[GameManager] Canvas node not found!');
+                return;
+            }
+        }
+        const canvasTransform = canvasNode.getComponent(UITransform);
+        if (!canvasTransform) {
+            console.error('[GameManager] Canvas UITransform not found!');
+            return;
+        }
+        const visible = view.getVisibleSize();
+        const canvasWidth = canvasTransform.width || visible.width;
+        const groundY = -visible.height / 2 + 150;
+        
+        // Размещаем противника на заданной высоте
+        const enemyY = groundY + this.enemySpawnY;
+        
+        // Используем локальные координаты относительно Canvas
+        enemy.setPosition(canvasWidth / 2 + 50, enemyY, 0);
+        this.enemies.push(enemy);
+        console.log('[GameManager] Enemy spawned at', canvasWidth / 2 + 50, enemyY, 'total enemies:', this.enemies.length);
     }
 
     spawnFinish() {
@@ -639,6 +738,12 @@ export class GameManager extends Component {
                 this.playerHealth--;
                 this.updateHealth();
                 
+                // Визуальный эффект получения урона
+                const playerController = this.player.getComponent(PlayerController);
+                if (playerController) {
+                    playerController.playDamageEffect();
+                }
+                
                 if (this.playerHealth <= 0) {
                     this.gameOver();
                 } else {
@@ -686,8 +791,12 @@ export class GameManager extends Component {
             const finishSprite = this.finishLine.getComponent(Sprite);
             
             if (finishTransform || finishSprite) {
-                const finishWidth = finishTransform ? finishTransform.width : 100;
-                const finishHeight = finishTransform ? finishTransform.height : 200;
+                const baseFinishWidth = finishTransform ? finishTransform.width : 100;
+                const baseFinishHeight = finishTransform ? finishTransform.height : 200;
+                
+                // Расширяем коллайдер финиша с помощью множителя
+                const finishWidth = baseFinishWidth * this.finishColliderScale;
+                const finishHeight = baseFinishHeight * this.finishColliderScale;
 
                 const finishRect = {
                     x: finishPos.x - finishWidth / 2,
@@ -699,6 +808,50 @@ export class GameManager extends Component {
                 if (this.isColliding(playerRect, finishRect)) {
                     console.log('[GameManager] Player reached finish line!');
                     this.finish();
+                }
+            }
+        }
+
+        // Проверка коллизии с противниками
+        for (let i = this.enemies.length - 1; i >= 0; i--) {
+            const enemy = this.enemies[i];
+            if (!enemy || !enemy.isValid) continue;
+
+            const enemyPos = enemy.getPosition();
+            const enemyTransform = enemy.getComponent(UITransform);
+            const enemySprite = enemy.getComponent(Sprite);
+            
+            if (!enemyTransform && !enemySprite) continue;
+
+            const enemyWidth = enemyTransform ? enemyTransform.width : 60;
+            const enemyHeight = enemyTransform ? enemyTransform.height : 80;
+
+            const enemyRect = {
+                x: enemyPos.x - enemyWidth / 2,
+                y: enemyPos.y - enemyHeight / 2,
+                width: enemyWidth,
+                height: enemyHeight
+            };
+
+            if (this.isColliding(playerRect, enemyRect)) {
+                console.log('[GameManager] Player collided with enemy!');
+                // Наносим урон игроку
+                this.playerHealth--;
+                this.updateHealth();
+                
+                // Визуальный эффект получения урона
+                const playerController = this.player.getComponent(PlayerController);
+                if (playerController) {
+                    playerController.playDamageEffect();
+                }
+                
+                // Удаляем противника после столкновения
+                enemy.destroy();
+                this.enemies.splice(i, 1);
+                
+                // Проверяем, не закончилась ли игра
+                if (this.playerHealth <= 0) {
+                    this.gameOver();
                 }
             }
         }
@@ -859,11 +1012,32 @@ export class GameManager extends Component {
             this.finishLine.setPosition(finishPos.x - this.gameSpeed, finishPos.y, finishPos.z);
         }
 
-        // Спавн новых препятствий раз в 10 секунд
+        // Обновление противников (движутся к игроку)
+        for (let i = this.enemies.length - 1; i >= 0; i--) {
+            const enemy = this.enemies[i];
+            if (!enemy || !enemy.isValid) {
+                this.enemies.splice(i, 1);
+                continue;
+            }
+            
+            const pos = enemy.getPosition();
+            // Двигаем противника влево к игроку с заданной скоростью
+            enemy.setPosition(pos.x - this.enemySpeed, pos.y, pos.z);
+
+            // Удаляем противников за экраном
+            if (pos.x < -canvasWidth / 2 - 100) {
+                enemy.destroy();
+                this.enemies.splice(i, 1);
+            }
+        }
+
+        // Спавн новых препятствий с случайным интервалом
         this.obstacleSpawnTimer += deltaTime;
-        if (this.obstacleSpawnTimer >= this.obstacleSpawnInterval) {
+        if (this.obstacleSpawnTimer >= this.currentObstacleSpawnInterval) {
             this.obstacleSpawnTimer = 0;
-            console.log('[GameManager] Spawn timer triggered, spawning obstacle');
+            // Генерируем новый случайный интервал для следующего спавна
+            this.currentObstacleSpawnInterval = this.obstacleSpawnIntervalMin + Math.random() * (this.obstacleSpawnIntervalMax - this.obstacleSpawnIntervalMin);
+            console.log('[GameManager] Spawn timer triggered, spawning obstacle. Next spawn in:', this.currentObstacleSpawnInterval.toFixed(2), 'seconds');
             this.spawnObstacle();
         }
 
@@ -873,6 +1047,16 @@ export class GameManager extends Component {
             this.collectibleSpawnTimer = 0;
             console.log('[GameManager] Spawn timer triggered, spawning collectible');
             this.spawnCollectible();
+        }
+
+        // Спавн противников с случайным интервалом
+        this.enemySpawnTimer += deltaTime;
+        if (this.enemySpawnTimer >= this.currentEnemySpawnInterval) {
+            this.enemySpawnTimer = 0;
+            // Генерируем новый случайный интервал для следующего спавна
+            this.currentEnemySpawnInterval = this.enemySpawnIntervalMin + Math.random() * (this.enemySpawnIntervalMax - this.enemySpawnIntervalMin);
+            console.log('[GameManager] Spawn timer triggered, spawning enemy. Next spawn in:', this.currentEnemySpawnInterval.toFixed(2), 'seconds');
+            this.spawnEnemy();
         }
 
         // Проверка коллизий

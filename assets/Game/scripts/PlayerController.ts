@@ -1,4 +1,4 @@
-import { _decorator, Component, Vec3, tween, easing, director, UITransform, view, Animation, AnimationClip } from 'cc';
+import { _decorator, Component, Vec3, tween, easing, director, UITransform, view, Animation, AnimationClip, Sprite, Color } from 'cc';
 const { ccclass, property } = _decorator;
 
 @ccclass('PlayerController')
@@ -27,6 +27,7 @@ export class PlayerController extends Component {
     private isGroundReady: boolean = false;
     private animation: Animation | null = null;
     private currentAnimationState: string = '';
+    private isRunning: boolean = false; // Флаг, что игрок бежит
 
     start() {
         console.log('[PlayerController] start() called');
@@ -128,7 +129,7 @@ export class PlayerController extends Component {
         this.jump();
     }
 
-    update() {
+    update(deltaTime: number) {
         if (!this.isGroundReady) {
             this.tryInitGround();
             return;
@@ -137,9 +138,22 @@ export class PlayerController extends Component {
         // Защита от "падения": пока не прыгаем — держим игрока на земле
         // Используем локальные координаты для UI элементов
         const currentPos = this.node.getPosition();
+        let newY = currentPos.y;
+        
         if (!this.isJumping && Math.abs(currentPos.y - this.groundY) > 0.1) {
-            this.node.setPosition(currentPos.x, this.groundY, 0);
+            newY = this.groundY;
         }
+
+        // Игрок остается на месте по X - скорость регулируется через движение фона
+        // Используем локальные координаты для UI элементов
+        this.node.setPosition(currentPos.x, newY, 0);
+    }
+
+    /**
+     * Устанавливает состояние бега игрока
+     */
+    public setRunning(running: boolean) {
+        this.isRunning = running;
     }
 
     /**
@@ -195,5 +209,35 @@ export class PlayerController extends Component {
      */
     public getIsJumping(): boolean {
         return this.isJumping;
+    }
+
+    /**
+     * Визуальный эффект получения урона: изменение альфа канала и масштаба
+     */
+    public playDamageEffect() {
+        const sprite = this.node.getComponent(Sprite);
+        if (!sprite) {
+            console.warn('[PlayerController] Sprite component not found for damage effect');
+            return;
+        }
+
+        const originalColor = sprite.color.clone();
+        const originalScale = this.node.getScale().clone();
+        const damageColor = new Color(originalColor.r, originalColor.g, originalColor.b, 128); // Альфа = 128 (0.5)
+        const damageScale = new Vec3(originalScale.x * 0.9, originalScale.y * 0.9, originalScale.z); // Уменьшаем на 10%
+
+        // Применяем эффект урона
+        sprite.color = damageColor;
+        this.node.setScale(damageScale);
+
+        // Возвращаем нормальное состояние через 0.5 секунды
+        tween(this.node)
+            .delay(0.5)
+            .call(() => {
+                sprite.color = originalColor;
+                this.node.setScale(originalScale);
+                console.log('[PlayerController] Damage effect ended');
+            })
+            .start();
     }
 }
