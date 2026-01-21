@@ -1,8 +1,10 @@
 {
   "version": 2,
+  "cleanUrls": false,
+  "trailingSlash": false,
   "rewrites": [
     {
-      "source": "/((?!assets|src|cocos-js|favicon.ico|style.css|application.js|index.js|index.html).*)",
+      "source": "/",
       "destination": "/index.html"
     }
   ],
