@@ -1,7 +1,9 @@
-import { _decorator, Component, Node, Label, director, AudioSource, Prefab, SpriteFrame, instantiate, UITransform, Sprite, input, Input, EventKeyboard, KeyCode, view, AudioClip, Vec3, tween, easing } from 'cc';
+import { _decorator, Component, Node, Label, director, AudioSource, Prefab, SpriteFrame, instantiate, UITransform, Sprite, input, Input, EventKeyboard, KeyCode, view, AudioClip, Vec3, tween, easing, Button } from 'cc';
 import { PlayerController } from './PlayerController';
 import { BackgroundScroller } from './BackgroundScroller';
 import { EnemyController } from './EnemyController';
+import { TutorialUI } from './TutorialUI';
+import { ParticleEffect } from './ParticleEffect';
 const { ccclass, property } = _decorator;
 
 export enum GameState {
@@ -16,14 +18,44 @@ export class GameManager extends Component {
     @property(Node)
     startScreen: Node = null!;
 
+    @property(Button)
+    startButton: Button = null!; // Кнопка для старта игры
+
     @property(Node)
-    gameOverScreen: Node = null!;
+    scaledObject: Node = null!; // Объект с зацикленным скейлом (1-0.9)
+
+    @property(Node)
+    enemyTutorialPopup: Node = null!; // Объект, который активируется при первом сближении с противником (пауза)
+
+    @property(Node)
+    gameOverScreen: Node = null!; // Основной объект окна проигрыша (контейнер, внутри него Part1 и Part2)
+
+    @property(Node)
+    gameOverScreenPart1: Node = null!; // Первая часть окна проигрыша (со спрайтом, дочерний объект GameOverScreen)
+
+    @property(Node)
+    gameOverScreenPart2: Node = null!; // Вторая часть окна проигрыша (основное окно, дочерний объект GameOverScreen)
+
+    @property(Node)
+    gameOverSprite: Node = null!; // Спрайт в первой части, который скейлится с 0 до 1
+
+    @property
+    gameOverAnimationDuration: number = 0.5; // Длительность анимации скейла спрайта
+
+    @property(Button)
+    restartButton: Button = null!; // Кнопка для перезапуска игры в окне проигрыша
+
+    @property(Button)
+    victoryRestartButton: Button = null!; // Кнопка для перезапуска игры в окне победы (если не указана, используется restartButton)
 
     @property(Label)
     scoreLabel: Label = null!;
 
     @property(Label)
-    finalScoreLabel: Label = null!;
+    finalScoreLabel: Label = null!; // Label для отображения финального счета (используется в окне поражения)
+
+    @property(Label)
+    victoryScoreLabel: Label = null!; // Label для отображения счета в окне победы (если не указан, используется finalScoreLabel)
 
     @property(Node)
     player: Node = null!;
@@ -61,6 +93,9 @@ export class GameManager extends Component {
     @property(AudioClip)
     collectSound: AudioClip = null!; // Звук сбора предмета
 
+    @property(AudioClip)
+    backgroundMusic: AudioClip = null!; // Фоновая музыка игры
+
     @property(Node)
     collectTarget: Node = null!; // Узел, к которому летят собранные предметы (обычно счетчик очков)
 
@@ -83,6 +118,9 @@ export class GameManager extends Component {
     finishColliderScale: number = 1.5; // Множитель размера коллайдера финиша (1.5 = увеличение на 50%)
 
     @property
+    finishColliderHeightMultiplier: number = 2.0; // Множитель высоты коллайдера финиша (2.0 = увеличение высоты в 2 раза, особенно вверх)
+
+    @property
     obstacleSpawnOffsetY: number = 0; // Оффсет по Y для спавна препятствий (относительно земли)
 
     @property
@@ -96,6 +134,9 @@ export class GameManager extends Component {
 
     @property(Node)
     victoryScreen: Node = null!; // Экран победы (если не указан, используется gameOverScreen)
+
+    @property([ParticleEffect])
+    victoryParticleEffects: ParticleEffect[] = []; // Массив партикл эффектов при победе (запускаются одновременно)
 
     @property(SpriteFrame)
     playerSprite: SpriteFrame = null!;
@@ -113,6 +154,9 @@ export class GameManager extends Component {
     private isMuted: boolean = false;
     private tutorialShown: boolean = false;
     private firstObstacleSpawned: boolean = false;
+    private firstEnemySpawned: boolean = false; // Флаг, что первый противник уже заспавнен
+    private isGamePaused: boolean = false; // Флаг паузы для туториала
+    private savedGameSpeed: number = 0; // Сохраненная скорость игры во время паузы
     private obstacles: Node[] = [];
     private obstacleSpawnTimer: number = 0;
     private currentObstacleSpawnInterval: number = 0; // Текущий интервал спавна препятствий (случайный)
@@ -179,6 +223,9 @@ export class GameManager extends Component {
         
         this.initGame();
         this.bindInput();
+        this.bindStartButton();
+        this.bindRestartButton();
+        this.startScaleLoop();
         console.log('[GameManager] Input bound');
     }
 
@@ -196,6 +243,73 @@ export class GameManager extends Component {
     private unbindInput() {
         input.off(Input.EventType.TOUCH_START, this.onGlobalTouchStart, this);
         input.off(Input.EventType.KEY_DOWN, this.onKeyDown, this);
+    }
+
+    private bindStartButton() {
+        if (this.startButton) {
+            this.startButton.node.on(Button.EventType.CLICK, this.onStartButtonClick, this);
+            console.log('[GameManager] Start button bound');
+        } else {
+            console.warn('[GameManager] Start button not assigned!');
+        }
+    }
+
+    private startScaleLoop() {
+        if (!this.scaledObject) {
+            console.warn('[GameManager] Scaled object not assigned!');
+            return;
+        }
+
+        const objectNode = this.scaledObject;
+        const originalScale = new Vec3(0.05, 0.05, 0.05);
+        const minScale = new Vec3(0.04, 0.04, 0.04);
+
+        // Функция для зацикленного скейла
+        const scaleLoop = () => {
+            tween(objectNode)
+                .to(0.5, { scale: minScale }, { easing: easing.sineInOut })
+                .to(0.5, { scale: originalScale }, { easing: easing.sineInOut })
+                .call(() => {
+                    // Повторяем бесконечно
+                    scaleLoop();
+                })
+                .start();
+        };
+
+        scaleLoop();
+    }
+
+    private onStartButtonClick() {
+        console.log('[GameManager] Start button clicked');
+        if (this.gameState === GameState.Start) {
+            this.startGame();
+        }
+    }
+
+    private bindRestartButton() {
+        if (this.restartButton) {
+            this.restartButton.node.on(Button.EventType.CLICK, this.onRestartButtonClick, this);
+            console.log('[GameManager] Restart button bound');
+        } else {
+            console.warn('[GameManager] Restart button not assigned!');
+        }
+
+        // Привязываем кнопку рестарта для окна победы
+        const victoryRestartBtn = this.victoryRestartButton || this.restartButton;
+        if (victoryRestartBtn && victoryRestartBtn !== this.restartButton) {
+            // Привязываем только если это другая кнопка
+            victoryRestartBtn.node.on(Button.EventType.CLICK, this.onRestartButtonClick, this);
+            console.log('[GameManager] Victory restart button bound');
+        } else if (!victoryRestartBtn) {
+            console.warn('[GameManager] Victory restart button not assigned and restartButton is also null!');
+        }
+    }
+
+    private onRestartButtonClick() {
+        console.log('[GameManager] Restart button clicked');
+        if (this.gameState === GameState.Over || this.gameState === GameState.Finish) {
+            this.restartGame();
+        }
     }
 
     private onGlobalTouchStart() {
@@ -218,6 +332,16 @@ export class GameManager extends Component {
      */
     private handlePrimaryAction() {
         console.log('[GameManager] handlePrimaryAction, gameState:', this.gameState);
+        // Если мы на паузе из-за туториала: по первому нажатию снимаем паузу и выполняем прыжок
+        if (this.isGamePaused && this.gameState === GameState.Playing) {
+            console.log('[GameManager] Continue from enemy tutorial + jump');
+            this.resumeGameFromTutorial();
+            const pc = this.player?.getComponent(PlayerController);
+            if (pc) {
+                pc.requestJump();
+            }
+            return;
+        }
         if (this.gameState === GameState.Start) {
             console.log('[Game] StartGame');
             this.startGame();
@@ -245,7 +369,9 @@ export class GameManager extends Component {
         this.score = 0;
         this.playerHealth = this.maxHealth;
         this.tutorialShown = false;
+        this.isGamePaused = false;
         this.firstObstacleSpawned = false;
+        this.firstEnemySpawned = false;
         this.obstacles = [];
         this.obstacleSpawnTimer = 0;
         this.currentObstacleSpawnInterval = this.obstacleSpawnIntervalMin + Math.random() * (this.obstacleSpawnIntervalMax - this.obstacleSpawnIntervalMin);
@@ -274,6 +400,23 @@ export class GameManager extends Component {
             console.error('[GameManager] gameOverScreen is null!');
         }
         
+        // Скрываем окно победы
+        if (this.victoryScreen) {
+            this.victoryScreen.active = false;
+            console.log('[GameManager] VictoryScreen deactivated');
+        }
+        
+        // Скрываем обе части окна проигрыша
+        if (this.gameOverScreenPart1) {
+            this.gameOverScreenPart1.active = false;
+        }
+        if (this.gameOverScreenPart2) {
+            this.gameOverScreenPart2.active = false;
+        }
+        
+        // Останавливаем фоновую музыку
+        this.stopBackgroundMusic();
+        
         this.updateScore();
         this.updateHealth();
         
@@ -287,10 +430,21 @@ export class GameManager extends Component {
         this.gameState = GameState.Playing;
         this.startScreen.active = false;
         this.gameOverScreen.active = false;
+        
+        // Скрываем окно победы при старте новой игры
+        if (this.victoryScreen) {
+            this.victoryScreen.active = false;
+        }
+        
+        // Запускаем фоновую музыку
+        this.playBackgroundMusic();
+        
         this.score = 0;
         this.playerHealth = this.maxHealth;
         this.tutorialShown = false;
+        this.isGamePaused = false;
         this.firstObstacleSpawned = false;
+        this.firstEnemySpawned = false;
         this.obstacleSpawnTimer = 0;
         this.currentObstacleSpawnInterval = this.obstacleSpawnIntervalMin + Math.random() * (this.obstacleSpawnIntervalMax - this.obstacleSpawnIntervalMin);
         this.enemySpawnTimer = 0;
@@ -336,9 +490,51 @@ export class GameManager extends Component {
     }
 
     gameOver() {
+        console.log('[GameManager] gameOver() called');
         this.gameState = GameState.Over;
+        
+        // Останавливаем фоновую музыку
+        this.stopBackgroundMusic();
+        
+        // Убеждаемся, что вторая часть скрыта
+        if (this.gameOverScreenPart2) {
+            this.gameOverScreenPart2.active = false;
+        }
+        
+        // Убеждаемся, что первая часть активна (она должна быть активна по умолчанию)
+        if (this.gameOverScreenPart1) {
+            this.gameOverScreenPart1.active = true;
+        }
+        
+        // Активируем основной объект GameOverScreen
+        if (this.gameOverScreen) {
         this.gameOverScreen.active = true;
-        this.finalScoreLabel.string = `Score: $${Math.floor(this.score)}`;
+            console.log('[GameManager] GameOverScreen activated (Part1 should be active inside)');
+            
+            // Анимируем спрайт с 0 до 1, если он указан
+            if (this.gameOverSprite) {
+                console.log('[GameManager] Animating sprite from 0 to 1');
+                this.gameOverSprite.setScale(0, 0, 1);
+                tween(this.gameOverSprite)
+                    .to(this.gameOverAnimationDuration, { 
+                        scale: new Vec3(1, 1, 1) 
+                    }, { 
+                        easing: easing.backOut 
+                    })
+                    .call(() => {
+                        // После завершения анимации переключаемся на вторую часть
+                        console.log('[GameManager] Sprite animation completed, switching to part 2');
+                        this.showGameOverPart2();
+                    })
+                    .start();
+            } else {
+                // Если спрайт не указан, сразу переключаемся на вторую часть
+                console.warn('[GameManager] gameOverSprite not assigned, showing part 2 immediately');
+                this.showGameOverPart2();
+            }
+        } else {
+            console.error('[GameManager] gameOverScreen not assigned!');
+        }
         
         // Останавливаем прокрутку фона
         const backgroundNode = this.getBackgroundNode();
@@ -353,8 +549,32 @@ export class GameManager extends Component {
         this.updatePlayerAnimation();
     }
 
+    private showGameOverPart2() {
+        console.log('[GameManager] showGameOverPart2() called');
+        
+        // Выключаем первую часть
+        if (this.gameOverScreenPart1) {
+            this.gameOverScreenPart1.active = false;
+            console.log('[GameManager] Hiding game over part 1');
+        }
+        
+        // Включаем вторую часть
+        if (this.gameOverScreenPart2) {
+            this.gameOverScreenPart2.active = true;
+            if (this.finalScoreLabel) {
+                this.finalScoreLabel.string = `$${Math.floor(this.score)}`;
+            }
+            console.log('[GameManager] Showing game over part 2');
+        } else {
+            console.warn('[GameManager] Part 2 not assigned!');
+        }
+    }
+
     finish() {
         this.gameState = GameState.Finish;
+        
+        // Останавливаем фоновую музыку
+        this.stopBackgroundMusic();
         
         // Используем экран победы или gameOverScreen
         const victoryScreen = this.victoryScreen || this.gameOverScreen;
@@ -365,12 +585,45 @@ export class GameManager extends Component {
             console.error('[GameManager] Victory screen and gameOverScreen are both null!');
         }
         
-        // Обновляем текст с очками
-        if (this.finalScoreLabel) {
-            this.finalScoreLabel.string = `Victory! Score: $${Math.floor(this.score)}`;
+        // Обновляем текст с очками (в том же формате, что и в окне поражения)
+        const scoreLabel = this.victoryScoreLabel || this.finalScoreLabel;
+        if (scoreLabel) {
+            scoreLabel.string = `$${Math.floor(this.score)}`;
+            console.log('[GameManager] Victory score updated:', scoreLabel.string);
+        } else {
+            console.warn('[GameManager] Neither victoryScoreLabel nor finalScoreLabel is assigned!');
         }
         
         console.log('[Game] Finish reached, score:', this.score);
+        
+        // Запускаем партикл эффекты при победе
+        if (this.victoryParticleEffects && this.victoryParticleEffects.length > 0) {
+            // Определяем позицию для партиклов (позиция игрока или финиша)
+            let particlePosition: Vec3 | undefined = undefined;
+            
+            if (this.player && this.player.isValid) {
+                // Используем позицию игрока
+                particlePosition = this.player.getPosition().clone();
+                console.log('[GameManager] Playing victory particle effects at player position:', particlePosition);
+            } else if (this.finishLine && this.finishLine.isValid) {
+                // Если игрок недоступен, используем позицию финиша
+                particlePosition = this.finishLine.getPosition().clone();
+                console.log('[GameManager] Playing victory particle effects at finish line position:', particlePosition);
+            }
+            
+            // Запускаем все эффекты одновременно
+            for (let i = 0; i < this.victoryParticleEffects.length; i++) {
+                const effect = this.victoryParticleEffects[i];
+                if (effect && effect.isValid) {
+                    effect.play(particlePosition);
+                    console.log(`[GameManager] Playing victory particle effect ${i + 1}/${this.victoryParticleEffects.length}`);
+                } else {
+                    console.warn(`[GameManager] victoryParticleEffects[${i}] is null or invalid!`);
+                }
+            }
+        } else {
+            console.warn('[GameManager] victoryParticleEffects array is empty or not assigned!');
+        }
         
         // Останавливаем прокрутку фона
         const backgroundNode = this.getBackgroundNode();
@@ -459,27 +712,120 @@ export class GameManager extends Component {
     }
 
     checkTutorial() {
-        if (this.tutorialShown || !this.firstObstacleSpawned || this.obstacles.length === 0) {
+        // Проверяем приближение к противнику для показа туториала
+        if (this.tutorialShown || this.isGamePaused || this.enemies.length === 0 || !this.firstEnemySpawned) {
             return;
         }
 
-        const firstObstacle = this.obstacles[0];
-        if (firstObstacle) {
-            const obstaclePos = firstObstacle.getPosition(); // Локальные координаты
-            const scene = director.getScene();
-            if (!scene) return;
-            const canvasNode = scene.getChildByName('Canvas');
-            if (!canvasNode) return;
-            const canvasTransform = canvasNode.getComponent(UITransform);
-            if (!canvasTransform) return;
-            const screenWidth = canvasTransform.width;
+        // Находим ближайшего противника
+        const scene = director.getScene();
+        if (!scene) return;
+        const canvasNode = scene.getChildByName('Canvas');
+        if (!canvasNode) return;
+        const canvasTransform = canvasNode.getComponent(UITransform);
+        if (!canvasTransform) return;
+        const screenWidth = canvasTransform.width;
+        const playerPos = this.player ? this.player.getPosition() : null;
+        if (!playerPos) return;
+
+        // Ищем первого противника, который приближается к игроку
+        // Упрощенная логика: показываем туториал как только противник появился и находится справа от игрока на умеренной дистанции
+        for (let i = 0; i < this.enemies.length; i++) {
+            const enemy = this.enemies[i];
+            if (!enemy || !enemy.isValid) continue;
+
+            const enemyPos = enemy.getPosition();
+            const distanceToPlayer = Math.abs(enemyPos.x - playerPos.x);
             
-            if (obstaclePos.x < screenWidth * 0.7 && obstaclePos.x > screenWidth * 0.3) {
-                const tutorialUI = this.node.getComponentInChildren('TutorialUI' as any);
-                if (tutorialUI && typeof tutorialUI.showTutorial === 'function') {
-                    tutorialUI.showTutorial();
+            // Упрощенное условие: противник справа от игрока и на умеренной дистанции (25..150)
+            // Область обнаружения уменьшена в 2 раза для более точного срабатывания
+            if (enemyPos.x > playerPos.x && distanceToPlayer > 25 && distanceToPlayer < 150) {
+                console.log('[GameManager] Tutorial trigger (near): enemy at', enemyPos.x, 'player at', playerPos.x, 'distance:', distanceToPlayer);
+                this.pauseGameForTutorial();
+                return;
+            }
+        }
+    }
+
+    private pauseGameForTutorial() {
+        if (this.isGamePaused) return;
+
+        console.log('[GameManager] Pausing game for tutorial');
+        this.isGamePaused = true;
                     this.tutorialShown = true;
+
+        // Сохраняем текущую скорость
+        this.savedGameSpeed = this.gameSpeed;
+        this.gameSpeed = 0;
+
+        // Останавливаем прокрутку фона
+        const backgroundNode = this.getBackgroundNode();
+        if (backgroundNode) {
+            const scroller = backgroundNode.getComponent(BackgroundScroller);
+            if (scroller) {
+                scroller.stopScrolling();
+            }
+        }
+
+        // Показываем объект-попап (если задан). Продолжение: следующий тап/SPACE обработает handlePrimaryAction()
+        console.log('[GameManager] pauseGameForTutorial: enemyTutorialPopup =', this.enemyTutorialPopup);
+        if (this.enemyTutorialPopup) {
+            console.log('[GameManager] Activating enemyTutorialPopup:', this.enemyTutorialPopup.name, 'isValid:', this.enemyTutorialPopup.isValid);
+            
+            // Убеждаемся, что родительские объекты тоже активны
+            let parent = this.enemyTutorialPopup.parent;
+            let parentChain = [];
+            while (parent) {
+                parentChain.push(parent.name + ' (active: ' + parent.active + ')');
+                if (!parent.active) {
+                    console.log('[GameManager] Activating parent:', parent.name);
+                    parent.active = true;
                 }
+                parent = parent.parent;
+            }
+            console.log('[GameManager] Parent chain:', parentChain.join(' -> '));
+            
+            // Активируем сам объект
+            this.enemyTutorialPopup.active = true;
+            
+            // Проверяем результат
+            console.log('[GameManager] enemyTutorialPopup activated, active:', this.enemyTutorialPopup.active, 'isValid:', this.enemyTutorialPopup.isValid);
+        } else {
+            console.error('[GameManager] enemyTutorialPopup is null! Trying fallback TutorialUI...');
+            // Fallback на старый TutorialUI (если нужен)
+            const tutorialUI = this.node.getComponentInChildren(TutorialUI);
+            if (tutorialUI) {
+                console.log('[GameManager] Using TutorialUI fallback');
+                tutorialUI.showTutorial(() => {
+                    this.resumeGameFromTutorial();
+                });
+            } else {
+                console.error('[GameManager] enemyTutorialPopup and TutorialUI not found!');
+            }
+        }
+    }
+
+    private resumeGameFromTutorial() {
+        if (!this.isGamePaused) return;
+
+        console.log('[GameManager] Resuming game from tutorial');
+        this.isGamePaused = false;
+
+        // Скрываем объект-попап
+        if (this.enemyTutorialPopup) {
+            this.enemyTutorialPopup.active = false;
+        }
+
+        // Восстанавливаем скорость игры
+        this.gameSpeed = this.savedGameSpeed;
+
+        // Возобновляем прокрутку фона
+        const backgroundNode = this.getBackgroundNode();
+        if (backgroundNode) {
+            const scroller = backgroundNode.getComponent(BackgroundScroller);
+            if (scroller) {
+                scroller.setScrollSpeed(this.gameSpeed);
+                scroller.startScrolling();
             }
         }
     }
@@ -638,6 +984,13 @@ export class GameManager extends Component {
         // Используем локальные координаты относительно Canvas
         enemy.setPosition(canvasWidth / 2 + 50, enemyY, 0);
         this.enemies.push(enemy);
+        
+        // Отмечаем, что первый противник заспавнен
+        if (!this.firstEnemySpawned) {
+            this.firstEnemySpawned = true;
+            console.log('[GameManager] First enemy spawned');
+        }
+        
         console.log('[GameManager] Enemy spawned at', canvasWidth / 2 + 50, enemyY, 'total enemies:', this.enemies.length);
     }
 
@@ -695,6 +1048,11 @@ export class GameManager extends Component {
     }
 
     checkCollisions() {
+        // Не проверяем коллизии во время паузы (туториал)
+        if (this.isGamePaused) {
+            return;
+        }
+        
         if (!this.player) return;
 
         // Для UI элементов используем локальные координаты
@@ -794,13 +1152,17 @@ export class GameManager extends Component {
                 const baseFinishWidth = finishTransform ? finishTransform.width : 100;
                 const baseFinishHeight = finishTransform ? finishTransform.height : 200;
                 
-                // Расширяем коллайдер финиша с помощью множителя
+                // Расширяем коллайдер финиша: ширина с помощью finishColliderScale, высота с помощью finishColliderHeightMultiplier
                 const finishWidth = baseFinishWidth * this.finishColliderScale;
-                const finishHeight = baseFinishHeight * this.finishColliderScale;
+                const finishHeight = baseFinishHeight * this.finishColliderHeightMultiplier;
+
+                // Смещаем коллайдер вверх, чтобы он лучше улавливал игрока, который может быть выше финиша
+                // Центр коллайдера смещается вверх на половину дополнительной высоты
+                const heightOffset = (finishHeight - baseFinishHeight) / 2;
 
                 const finishRect = {
                     x: finishPos.x - finishWidth / 2,
-                    y: finishPos.y - finishHeight / 2,
+                    y: finishPos.y - finishHeight / 2 + heightOffset, // Смещаем вверх
                     width: finishWidth,
                     height: finishHeight
                 };
@@ -956,6 +1318,11 @@ export class GameManager extends Component {
             return;
         }
 
+        // Если игра на паузе (туториал), не обновляем игру
+        if (this.isGamePaused) {
+            return;
+        }
+
         this.runTimer += deltaTime;
         
         // Логируем прогресс каждые 5 секунд
@@ -1038,8 +1405,8 @@ export class GameManager extends Component {
             // Генерируем новый случайный интервал для следующего спавна
             this.currentObstacleSpawnInterval = this.obstacleSpawnIntervalMin + Math.random() * (this.obstacleSpawnIntervalMax - this.obstacleSpawnIntervalMin);
             console.log('[GameManager] Spawn timer triggered, spawning obstacle. Next spawn in:', this.currentObstacleSpawnInterval.toFixed(2), 'seconds');
-            this.spawnObstacle();
-        }
+                this.spawnObstacle();
+            }
 
         // Спавн собираемых предметов раз в 5 секунд
         this.collectibleSpawnTimer += deltaTime;
@@ -1059,11 +1426,11 @@ export class GameManager extends Component {
             this.spawnEnemy();
         }
 
+        // Проверка туториала (ПЕРЕД проверкой коллизий, чтобы успеть остановить игру)
+        this.checkTutorial();
+
         // Проверка коллизий
         this.checkCollisions();
-
-        // Проверка туториала
-        this.checkTutorial();
 
         // Увеличение скорости
         this.gameSpeed += 0.0001;
@@ -1089,5 +1456,62 @@ export class GameManager extends Component {
     restartGame() {
         this.initGame();
         // updatePlayerAnimation() уже вызывается в initGame()
+    }
+
+    /**
+     * Воспроизводит фоновую музыку
+     */
+    private playBackgroundMusic() {
+        if (!this.backgroundMusic) {
+            console.warn('[GameManager] backgroundMusic not assigned!');
+            return;
+        }
+
+        let audioSource = this.getComponent(AudioSource);
+        if (!audioSource) {
+            // Если AudioSource нет на GameManager, пытаемся найти в сцене или создать
+            const scene = director.getScene();
+            if (scene) {
+                const canvasNode = scene.getChildByName('Canvas');
+                if (canvasNode) {
+                    audioSource = canvasNode.getComponent(AudioSource);
+                    if (!audioSource) {
+                        // Создаем AudioSource на Canvas, если его нет
+                        audioSource = canvasNode.addComponent(AudioSource);
+                    }
+                }
+            }
+        }
+
+        if (audioSource) {
+            audioSource.clip = this.backgroundMusic;
+            audioSource.loop = true; // Зацикливаем музыку
+            audioSource.volume = this.isMuted ? 0 : 1;
+            audioSource.play();
+            console.log('[GameManager] Background music started');
+        } else {
+            console.error('[GameManager] Could not find or create AudioSource for background music!');
+        }
+    }
+
+    /**
+     * Останавливает фоновую музыку
+     */
+    private stopBackgroundMusic() {
+        let audioSource = this.getComponent(AudioSource);
+        if (!audioSource) {
+            const scene = director.getScene();
+            if (scene) {
+                const canvasNode = scene.getChildByName('Canvas');
+                if (canvasNode) {
+                    audioSource = canvasNode.getComponent(AudioSource);
+                }
+            }
+        }
+
+        if (audioSource && audioSource.playing) {
+            audioSource.stop();
+            console.log('[GameManager] Background music stopped');
+        }
     }
 }
