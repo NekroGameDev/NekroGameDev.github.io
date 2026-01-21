@@ -115,7 +115,7 @@ export class GameManager extends Component {
     finishY: number = 150; // Высота финиша по Y (относительно земли)
 
     @property
-    finishColliderScale: number = 1.5; // Множитель размера коллайдера финиша (1.5 = увеличение на 50%)
+    finishColliderWidthScale: number = 0.8; // Множитель ширины коллайдера финиша (0.8 = уменьшение ширины до 80%)
 
     @property
     finishColliderHeightMultiplier: number = 2.0; // Множитель высоты коллайдера финиша (2.0 = увеличение высоты в 2 раза, особенно вверх)
@@ -1144,8 +1144,8 @@ export class GameManager extends Component {
                 const baseFinishWidth = finishTransform ? finishTransform.width : 100;
                 const baseFinishHeight = finishTransform ? finishTransform.height : 200;
                 
-                // Расширяем коллайдер финиша: ширина с помощью finishColliderScale, высота с помощью finishColliderHeightMultiplier
-                const finishWidth = baseFinishWidth * this.finishColliderScale;
+                // Настраиваем коллайдер финиша: ширина с помощью finishColliderWidthScale, высота с помощью finishColliderHeightMultiplier
+                const finishWidth = baseFinishWidth * this.finishColliderWidthScale;
                 const finishHeight = baseFinishHeight * this.finishColliderHeightMultiplier;
 
                 // Смещаем коллайдер вверх, чтобы он лучше улавливал игрока, который может быть выше финиша

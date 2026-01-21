@@ -774,7 +774,7 @@
       "__uuid__": "5d07c3a5-cfd4-4959-8b76-64641fc0f428",
       "__expectedType__": "cc.Prefab"
     },
-    "enemySpawnY": 100,
+    "enemySpawnY": 20,
     "enemySpawnIntervalMin": 3,
     "enemySpawnIntervalMax": 4,
     "enemySpeed": 10,
@@ -789,14 +789,14 @@
     "collectTarget": {
       "__id__": 111
     },
-    "collectibleMinY": 50,
-    "collectibleMaxY": 250,
+    "collectibleMinY": 0,
+    "collectibleMaxY": 200,
     "collectibleCollectionRadius": 0.3,
     "sessionDuration": 30,
-    "finishY": 45,
-    "finishColliderScale": 1.5,
+    "finishY": -25,
+    "finishColliderWidthScale": 0.8,
     "finishColliderHeightMultiplier": 2,
-    "obstacleSpawnOffsetY": 100,
+    "obstacleSpawnOffsetY": 15,
     "obstacleSpawnIntervalMin": 8,
     "obstacleSpawnIntervalMax": 12,
     "gameSpeed": 8,
@@ -1850,7 +1850,7 @@
     "__prefab": null,
     "jumpHeight": 200,
     "jumpDuration": 0.5,
-    "groundOffset": 250,
+    "groundOffset": 170,
     "idleAnimation": {
       "__uuid__": "cabb14f4-6518-4fc6-878b-50f5a7a2710c",
       "__expectedType__": "cc.AnimationClip"
@@ -5216,8 +5216,8 @@
     "_prefab": null,
     "_lpos": {
       "__type__": "cc.Vec3",
-      "x": -0.0945,
-      "y": -306.7780000000001,
+      "x": -0.095,
+      "y": -304.11150000000004,
       "z": 0
     },
     "_lrot": {
@@ -5256,7 +5256,7 @@
     "_contentSize": {
       "__type__": "cc.Size",
       "width": 1279.844,
-      "height": 201
+      "height": 110.703
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
