@@ -226,6 +226,10 @@ export class GameManager extends Component {
         this.bindStartButton();
         this.bindRestartButton();
         this.startScaleLoop();
+        
+        // Запускаем фоновую музыку при старте приложения (она будет играть постоянно)
+        this.playBackgroundMusic();
+        
         console.log('[GameManager] Input bound');
     }
 
@@ -414,9 +418,6 @@ export class GameManager extends Component {
             this.gameOverScreenPart2.active = false;
         }
         
-        // Останавливаем фоновую музыку
-        this.stopBackgroundMusic();
-        
         this.updateScore();
         this.updateHealth();
         
@@ -435,9 +436,6 @@ export class GameManager extends Component {
         if (this.victoryScreen) {
             this.victoryScreen.active = false;
         }
-        
-        // Запускаем фоновую музыку
-        this.playBackgroundMusic();
         
         this.score = 0;
         this.playerHealth = this.maxHealth;
@@ -492,9 +490,6 @@ export class GameManager extends Component {
     gameOver() {
         console.log('[GameManager] gameOver() called');
         this.gameState = GameState.Over;
-        
-        // Останавливаем фоновую музыку
-        this.stopBackgroundMusic();
         
         // Убеждаемся, что вторая часть скрыта
         if (this.gameOverScreenPart2) {
@@ -572,9 +567,6 @@ export class GameManager extends Component {
 
     finish() {
         this.gameState = GameState.Finish;
-        
-        // Останавливаем фоновую музыку
-        this.stopBackgroundMusic();
         
         // Используем экран победы или gameOverScreen
         const victoryScreen = this.victoryScreen || this.gameOverScreen;
@@ -1459,7 +1451,7 @@ export class GameManager extends Component {
     }
 
     /**
-     * Воспроизводит фоновую музыку
+     * Воспроизводит фоновую музыку (запускается один раз при старте приложения)
      */
     private playBackgroundMusic() {
         if (!this.backgroundMusic) {
@@ -1484,6 +1476,12 @@ export class GameManager extends Component {
         }
 
         if (audioSource) {
+            // Проверяем, не играет ли уже музыка
+            if (audioSource.playing && audioSource.clip === this.backgroundMusic) {
+                console.log('[GameManager] Background music is already playing');
+                return;
+            }
+            
             audioSource.clip = this.backgroundMusic;
             audioSource.loop = true; // Зацикливаем музыку
             audioSource.volume = this.isMuted ? 0 : 1;
